@@ -1,14 +1,15 @@
 using LoupixDeck.Plugin.Claude.Commands;
 using LoupixDeck.Plugin.Claude.Platform;
 using LoupixDeck.Plugin.Claude.Sessions;
+using LoupixDeck.Plugin.Claude.Status;
 using LoupixDeck.Plugin.Claude.Usage;
 using LoupixDeck.PluginSdk;
 
 namespace LoupixDeck.Plugin.Claude;
 
 /// <summary>
-/// LoupixDeck plugin entry point. Owns the two background workers (the Claude Code session
-/// monitor and the usage poller), each started on demand by its key and stopped when the key is
+/// LoupixDeck plugin entry point. Owns the three background workers (the Claude Code session
+/// monitor, the usage poller and the status poller), each started on demand by its key and stopped when the key is
 /// no longer shown or its setting is off, and exposes the launcher commands.
 /// </summary>
 public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
@@ -20,6 +21,7 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
     private const string AccessTokenKey = "access_token";
     private const string AlertWaitingKey = "alert_waiting";
     private const string SessionsDirKey = "sessions_dir";
+    private const string ShowStatusKey = "show_status";
 
     private const string SupportUrl = "https://web-engineer.co.uk/contact";
     private const string IssuesUrl = "https://github.com/web-engineer/LoupixDeck.Plugin.Claude/issues";
@@ -27,6 +29,7 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
     /// <summary>Demand windows: a worker stops this long after its key was last rendered.</summary>
     private static readonly TimeSpan SessionsIdle = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan UsageIdle = TimeSpan.FromMinutes(12);
+    private static readonly TimeSpan StatusIdle = TimeSpan.FromMinutes(5);
 
     private readonly Lazy<IReadOnlyList<IPluginCommand>> _commands;
     private IPluginHost _host = null!;
@@ -34,6 +37,8 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
     private UsageClient _usage = null!;
     private DemandGate _sessionsGate = null!;
     private DemandGate _usageGate = null!;
+    private StatusClient _status = null!;
+    private DemandGate _statusGate = null!;
 
     public ClaudePlugin()
     {
@@ -47,7 +52,7 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
         Version = new Version(0, 2, 1),
         SdkVersion = SdkInfo.Version,
         Author = "web-engineer",
-        Description = "Open Claude and Quick entry from the deck, watch your usage limits, and get a key that lights when a Claude Code session is waiting for you.",
+        Description = "Open Claude and Quick entry from the deck, watch your usage limits and Claude's service status, and get a key that lights when a Claude Code session is waiting for you.",
         Icon = LoadEmbeddedIcon("LoupixDeck.Plugin.Claude.icon.png")
     };
 
@@ -57,9 +62,12 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
     internal UsageClient Usage => _usage;
     internal DemandGate SessionsGate => _sessionsGate;
     internal DemandGate UsageGate => _usageGate;
+    internal StatusClient Status => _status;
+    internal DemandGate StatusGate => _statusGate;
 
     internal bool UsageEnabled => _host.Settings.Get(ShowUsageKey, true);
     internal bool WaitingEnabled => _host.Settings.Get(AlertWaitingKey, true);
+    internal bool StatusEnabled => _host.Settings.Get(ShowStatusKey, true);
     internal string QuickEntryShortcut => _host.Settings.Get(QuickEntryKey, ClaudeApp.DefaultQuickEntryShortcut) ?? string.Empty;
 
     private string SessionsDirectory =>
@@ -77,6 +85,10 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
         _sessions = CreateMonitor();
         _sessionsGate = new DemandGate(() => WaitingEnabled, StartSessions, StopSessions, SessionsIdle);
 
+        _status = new StatusClient(host.Logger);
+        _status.Changed += RefreshStatusKeys;
+        _statusGate = new DemandGate(() => StatusEnabled, StartStatus, StopStatus, StatusIdle);
+
         host.Logger.Info(ClaudeApp.IsDesktopInstalled
             ? "Claude desktop app found; deep links enabled"
             : "Claude desktop app not found; launcher keys open claude.ai in the browser");
@@ -86,8 +98,10 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
     {
         _sessionsGate?.Dispose();
         _usageGate?.Dispose();
+        _statusGate?.Dispose();
         _sessions?.Dispose();
         _usage?.Dispose();
+        _status?.Dispose();
     }
 
     public override IEnumerable<IPluginCommand> GetCommands() => _commands.Value;
@@ -102,7 +116,8 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
         new WaitingCommand(this),
         new UsageCommand(this, UsageCommand.View.FiveHour),
         new UsageCommand(this, UsageCommand.View.Weekly),
-        new UsageCommand(this, UsageCommand.View.ModelWeekly)
+        new UsageCommand(this, UsageCommand.View.ModelWeekly),
+        .. StatusCommand.All(this)
     ];
 
     public override IReadOnlyList<CommandGroupDescriptor> GetCommandGroups() =>
@@ -110,7 +125,7 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
         new CommandGroupDescriptor
         {
             Group = GroupName,
-            Description = "Claude: open the app, Quick entry, usage limits and a key that lights when Claude Code is waiting for you",
+            Description = "Claude: open the app, Quick entry, usage limits, service status and a key that lights when Claude Code is waiting for you",
             Icon = "\U000F036A" // mdi-message-text-outline
         }
     ];
@@ -148,9 +163,26 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
         _usage.Stop();
     }
 
+    private void StartStatus()
+    {
+        _host.Logger.Info("Status poller started");
+        _status.Start();
+    }
+
+    private void StopStatus()
+    {
+        _host.Logger.Info("Status poller stopped");
+        _status.Stop();
+    }
+
     internal void RefreshUsageKeys()
     {
         foreach (var name in UsageCommand.Names) _host.RequestButtonRefresh(name);
+    }
+
+    private void RefreshStatusKeys()
+    {
+        foreach (var name in StatusCommand.Names) _host.RequestButtonRefresh(name);
     }
 
     private void OnSessionsChanged()
@@ -229,6 +261,21 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
         },
         new PluginSettingDescriptor
         {
+            Key = "status",
+            Label = "Claude status",
+            Kind = PluginSettingKind.Heading,
+            Description = "The status keys read the public status page status.claude.com every 2 minutes, but only while a status key is on screen and the device is on. No sign-in is sent."
+        },
+        new PluginSettingDescriptor
+        {
+            Key = ShowStatusKey,
+            Label = "Show status",
+            Kind = PluginSettingKind.Toggle,
+            DefaultValue = true,
+            Description = "Off: no requests are made and the status keys show \"Off\"."
+        },
+        new PluginSettingDescriptor
+        {
             Key = "about",
             Label = "About and support",
             Kind = PluginSettingKind.Heading,
@@ -241,6 +288,7 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
     [
         new PluginSettingAction { Label = "Test usage lookup", Invoke = TestUsageAsync },
         new PluginSettingAction { Label = "List Claude Code sessions", Invoke = ListSessionsAsync },
+        new PluginSettingAction { Label = "Test status lookup", Invoke = TestStatusAsync },
         new PluginSettingAction { Label = "Get support", Invoke = () => OpenLink(SupportUrl) },
         new PluginSettingAction { Label = "Report a bug or request a feature", Invoke = () => OpenLink(IssuesUrl) }
     ];
@@ -253,6 +301,7 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
         // Workers restart lazily from the next key render with the new settings.
         _usageGate.Reset();
         _sessionsGate.Reset();
+        _statusGate.Reset();
 
         var old = _sessions;
         _sessions = CreateMonitor();
@@ -260,6 +309,7 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
         old.Dispose();
 
         RefreshUsageKeys();
+        RefreshStatusKeys();
         _host.RequestButtonRefresh(WaitingCommand.Name);
     }
 
@@ -275,6 +325,27 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
         var five = snapshot.FiveHour is { } f ? $"5-hour window {f.Utilization:0}% used, resets in {f.ResetsIn(now)}" : "5-hour window not reported";
         var seven = snapshot.SevenDay is { } s ? $"7-day window {s.Utilization:0}% used, resets in {s.ResetsIn(now)}" : "7-day window not reported";
         return $"Token from {source}. {five}; {seven}.";
+    }
+
+    private async Task<string> TestStatusAsync()
+    {
+        var snapshot = await _status.RefreshAsync().ConfigureAwait(false);
+        if (!snapshot.HasData) return $"The status lookup failed: {snapshot.Error}";
+
+        var services = snapshot.Components.Select(c => $"{c.Key} {Describe(c.Value)}");
+        var incidents = snapshot.Incidents.Count > 0 ? $" Open incidents: {string.Join("; ", snapshot.Incidents)}." : string.Empty;
+        var stale = snapshot.Error is not null ? $" (lookup failed: {snapshot.Error}; showing the last status)" : string.Empty;
+        return $"{snapshot.Description ?? Describe(snapshot.Overall)}{stale}. {string.Join("; ", services)}.{incidents}";
+
+        static string Describe(ServiceHealth health) => health switch
+        {
+            ServiceHealth.Operational => "operational",
+            ServiceHealth.Degraded => "degraded",
+            ServiceHealth.PartialOutage => "partial outage",
+            ServiceHealth.MajorOutage => "major outage",
+            ServiceHealth.Maintenance => "under maintenance",
+            _ => "unknown"
+        };
     }
 
     private Task<string> ListSessionsAsync()

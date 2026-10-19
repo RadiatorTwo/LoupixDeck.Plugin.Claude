@@ -6,7 +6,7 @@
   "entryAssembly": "LoupixDeck.Plugin.Claude.dll",
   "platform": "All",
   "author": "web-engineer",
-  "description": "Open Claude and Quick entry from the deck, watch your usage limits, and get a key that lights when a Claude Code session is waiting for you.",
+  "description": "Open Claude and Quick entry from the deck, watch your usage limits and Claude's service status, and get a key that lights when a Claude Code session is waiting for you.",
   "projectUrl": "https://github.com/web-engineer/LoupixDeck.Plugin.Claude",
   "iconFile": "icon.png"
 }

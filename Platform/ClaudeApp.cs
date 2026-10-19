@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using LoupixDeck.PluginSdk;
+using Microsoft.Win32;
 
 namespace LoupixDeck.Plugin.Claude.Platform;
 
@@ -69,6 +70,11 @@ internal static class ClaudeApp
 
             if (OperatingSystem.IsWindows())
             {
+                // The Store / MSIX build lives under WindowsApps, which is not listable, so the
+                // registered claude:// handler is the signal; the folder checks cover old installers.
+                using var protocol = Registry.ClassesRoot.OpenSubKey("claude");
+                if (protocol?.GetValue("URL Protocol") is not null) return true;
+
                 var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 return Directory.Exists(Path.Combine(local, "AnthropicClaude"))
                        || File.Exists(Path.Combine(local, "Programs", "Claude", "Claude.exe"));

@@ -98,6 +98,7 @@ public sealed class ClaudePlugin : LoupixPlugin, IPluginSettingsPage
         new QuickEntryCommand(this),
         new NewCodeSessionCommand(this),
         new ContinueLastCommand(this),
+        new CodeTerminalCommand(this),
         .. PageCommand.All(this),
         new WaitingCommand(this),
         new UsageCommand(this, UsageCommand.View.FiveHour),

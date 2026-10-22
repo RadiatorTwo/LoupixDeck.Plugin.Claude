@@ -22,6 +22,7 @@ Anthropic. Claude is a trademark of Anthropic.
 | Feature | macOS | Windows | Linux |
 |---|---|---|---|
 | Open, New Code session, Continue last | Desktop app (deep link) or browser | Desktop app (deep link) or browser | Browser only |
+| Claude CLI | Terminal.app, in the front Finder window's folder | Default terminal, in the active Explorer window's folder | Desktop's terminal, in the home folder |
 | Quick entry | Yes | Yes | `No desktop app` (needs the desktop app on every OS) |
 | Current state key: state and project name | Yes | Yes | Yes |
 | Current state key: tap focuses the session | Yes | Desktop app sessions only; otherwise the key shows the session name | Key shows the session name |
@@ -131,6 +132,7 @@ again to get them.
 | `Claude.QuickEntry` | Prompt icon, `Claude` |
 | `Claude.NewCodeSession` | Code icon, `New Code` |
 | `Claude.ContinueLast` | History icon, `Continue` |
+| `Claude.CodeTerminal` | Console icon, `Claude CLI` |
 | `Claude.Design` | Palette icon, `Design` |
 | `Claude.Customize` | Sliders icon, `Customize` |
 | `Claude.Scheduled` | Calendar icon, `Scheduled` |
@@ -141,6 +143,7 @@ again to get them.
 | `Claude.QuickEntry` | none | all | Sends the *Quick entry shortcut* with `System.KeyCombination(...)`. Quick entry has no deep link. Without the desktop app it shows `No desktop app`. |
 | `Claude.NewCodeSession` | none | all | Opens `claude://code/new`, or `https://claude.ai/code`. |
 | `Claude.ContinueLast` | none | all | Opens `claude://code/continue?session=last`, or `https://claude.ai/code`. |
+| `Claude.CodeTerminal` | none | all | Starts the Claude Code CLI (`claude`) in a terminal. See [Claude CLI](#claude-cli). |
 | `Claude.Design` | none | all | Opens Claude's Design page: `claude://claude.ai/design`, or `https://claude.ai/design`. |
 | `Claude.Customize` | none | all | Opens Customize (skills, connectors, plugins): `claude://claude.ai/customize`, or `https://claude.ai/customize`. |
 | `Claude.Scheduled` | none | all | Opens Claude Code's scheduled tasks: `claude://claude.ai/epitaxy/scheduled`, or the same page on claude.ai. |
@@ -150,6 +153,29 @@ again to get them.
 | `Claude.UsageModelWeekly` | `Model` (default `Fable`) | touch buttons | One model's own 7-day limit, e.g. Fable: one ring, percentage and time until reset. |
 
 When nothing could be launched, a touch button briefly shows `Claude not found`.
+
+### Claude CLI
+
+`Claude.CodeTerminal` opens a new terminal window running `claude`, so the
+Claude Code CLI must be installed and on your `PATH`. The window stays open when
+`claude` exits.
+
+- **Windows:** starts `cmd /k claude` in a new console. Windows opens it in the
+  terminal set under Settings › System › For developers › Terminal (Windows
+  Terminal or the console host). The folder is the one shown in the topmost
+  File Explorer window, and in its selected tab on Windows 11.
+- **macOS:** runs `claude` in a new Terminal.app window, in the folder of the
+  front Finder window. The first time, macOS asks whether LoupixDeck may control
+  Finder and Terminal.
+- **Linux:** uses `$TERMINAL` when set, otherwise the desktop's own terminal
+  (Konsole, GNOME Console or GNOME Terminal, Xfce Terminal), then
+  `x-terminal-emulator`, kitty, Alacritty, foot or xterm. `claude` runs in your
+  login shell. Linux file managers have no common way to report their folder,
+  so the CLI starts in your home folder.
+
+Without a file manager window, or when its folder is not a real directory (such
+as This PC), the CLI starts in your home folder. When no terminal could be
+started, a touch button briefly shows `No terminal`.
 
 ### Current state key
 

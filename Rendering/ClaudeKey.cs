@@ -15,4 +15,15 @@ internal static class ClaudeKey
 
     /// <summary>Secondary text: white at 70 %.</summary>
     public const string FadedHex = "#B3FFFFFF";
+
+    // Status key backgrounds: amber (degraded), red (outage), slate (maintenance).
+    public const string AmberHex = "#F5A623";
+    public const string RedHex = "#D32F2F";
+    public const string SlateHex = "#546E7A";
+
+    /// <summary>Dark text for the amber background, where white would be hard to read.</summary>
+    public const string InkHex = "#1A1A1A";
+
+    /// <summary>Secondary dark text: ink at 70 %.</summary>
+    public const string FadedInkHex = "#B31A1A1A";
 }

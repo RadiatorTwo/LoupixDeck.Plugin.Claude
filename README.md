@@ -5,8 +5,9 @@
 
 A [LoupixDeck](https://github.com/RadiatorTwo/LoupixDeck) plugin for day-to-day
 Claude: open Claude (optionally with a prompt), Quick entry, a Claude Code
-session launcher, usage gauges for your 5-hour and 7-day limits, and a key that
-lights when a Claude Code session is waiting for you. Built
+session launcher, usage gauges for your 5-hour and 7-day limits, status keys for
+Claude's services from status.claude.com, and a key that lights when a Claude Code
+session is waiting for you. Built
 against `LoupixDeck.PluginSdk` 1.30.0 (so it needs a LoupixDeck build with that
 SDK) and targets .NET 10; runs on macOS, Linux
 and Windows, with the limits listed under [Platform support](#platform-support).
@@ -27,6 +28,7 @@ Anthropic. Claude is a trademark of Anthropic.
 | Current state key: state and project name | Yes | Yes | Yes |
 | Current state key: tap focuses the session | Yes | Desktop app sessions only; otherwise the key shows the session name | Key shows the session name |
 | Usage keys | Yes | Yes | Yes |
+| Status keys | Yes | Yes | Yes |
 
 Deep links (`claude://`) need the Claude desktop app, which exists for macOS and
 Windows. Without it:
@@ -96,6 +98,7 @@ workers restart from the next key render.
 | Access token (optional) | `access_token` | empty | Only needed when the Claude Code sign-in cannot be found. See [Usage keys](#usage-keys). |
 | Alert me when Claude wants input | `alert_waiting` | on | Off: the session folder is not watched and the Current state key shows `Off`. |
 | Session folder (optional) | `sessions_dir` | empty (`~/.claude/sessions`) | Override only if Claude Code keeps its session files elsewhere. |
+| Show status | `show_status` | on | Off: status.claude.com is not polled and the status keys show `Off`. |
 
 Key names in the shortcut field use the host's macro syntax: `Alt` is the
 Option key on macOS, and `Cmd` and `Win` both mean the Command key.
@@ -108,6 +111,9 @@ Buttons on the page:
   or the reason it failed.
 - **List Claude Code sessions** reports each live session as
   `name (project): busy|waiting|idle`, or that there are none.
+- **Test status lookup** fetches status.claude.com and reports the overall status,
+  each service and any open incidents, for example
+  `All Systems Operational. claude.ai operational; Claude API (api.anthropic.com) operational; …`.
 - **Get support** opens [web-engineer.co.uk/contact](https://web-engineer.co.uk/contact),
   with our public Slack and our tracker.
 - **Report a bug or request a feature** opens this repository's
@@ -151,6 +157,12 @@ again to get them.
 | `Claude.UsageFiveHour` | none | touch buttons | The 5-hour window: one ring, percentage and time until reset. |
 | `Claude.UsageWeekly` | none | touch buttons | The 7-day window: one ring, percentage and time until reset. |
 | `Claude.UsageModelWeekly` | `Model` (default `Fable`) | touch buttons | One model's own 7-day limit, e.g. Fable: one ring, percentage and time until reset. |
+| `Claude.Status` | none | touch buttons | Claude's overall status from status.claude.com. See [Status keys](#status-keys). |
+| `Claude.Status.ClaudeAi` | none | touch buttons | Status of claude.ai. |
+| `Claude.Status.Api` | none | touch buttons | Status of the Claude API (api.anthropic.com). |
+| `Claude.Status.Code` | none | touch buttons | Status of Claude Code. |
+| `Claude.Status.Console` | none | touch buttons | Status of the Claude Console (platform.claude.com). |
+| `Claude.Status.Cowork` | none | touch buttons | Status of Claude Cowork. |
 
 When nothing could be launched, a touch button briefly shows `Claude not found`.
 
@@ -269,24 +281,58 @@ the plugin's `settings.json` like any other setting. Access tokens expire and
 Claude Code refreshes them when it runs; the plugin does not refresh anything, so
 a pasted token will need pasting again. Prefer the automatic lookup.
 
+### Status keys
+
+`Claude.Status` shows the overall status of [status.claude.com](https://status.claude.com/);
+`Claude.Status.ClaudeAi`, `.Api`, `.Code`, `.Console` and `.Cowork` each show one
+service. Tap any of them to open the status page in the browser (the key also
+fetches the status again).
+
+Each service has its own command id instead of a parameter: LoupixDeck switches the
+state of every key that shares a command name, so keys for different services
+must not share one.
+
+The keys have five button states. Each brings its own layers when you assign the
+command; restyle them per state in the button editor:
+
+| State | Meaning | Look | Status text |
+|---|---|---|---|
+| `operational` | Working normally | Check mark on orange | `OK` |
+| `degraded` | Degraded performance (overall: minor incident) | Warning sign, dark text on amber | `Degraded` |
+| `outage` | Partial or major outage | Octagon on red | `Partial` or `Outage` |
+| `maintenance` | Maintenance in progress | Wrench on slate | `Maint.` |
+| `unknown` | No status yet, the lookup failed, the service is not listed, or *Show status* is off | Cloud with a question mark on orange | `—` or `Off` |
+
+Layers in every state: an icon, *Service* (the service name, plain text) and
+*Status* (text source *Value*). When a lookup fails, the previous status stays
+on the key; *Test status lookup* in the settings shows the error.
+
+The keys read `https://status.claude.com/api/v2/summary.json`, the public
+Statuspage summary. No token or account data is sent. On HTTP 429 or a server
+error the poll backs off, doubling from 2 minutes up to 15, and returns to 2
+minutes after a good response.
+
 ## Polling and cost
 
-Both workers start on demand and stop when nobody is looking:
+All workers start on demand and stop when nobody is looking:
 
 | Worker | Runs while | Stops after |
 |---|---|---|
 | Session watcher (file watcher plus a 10 s rescan) | A `Claude.Waiting` key is on the current page and *Alert me when Claude wants input* is on | 30 s without the key being rendered |
 | Usage poller (every 5 min) | A usage key is on the current page and *Show usage* is on | 12 min without the key being rendered |
+| Status poller (every 2 min) | A status key is on the current page and *Show status* is on | 5 min without the key being rendered |
 
-Both toggles are on by default. With a LoupixDeck build that pauses display
-polling while the device is off, both workers also stop when the device is off.
+All three toggles are on by default. With a LoupixDeck build that pauses display
+polling while the device is off, the workers also stop when the device is off.
 The launcher commands run no background work.
 
 ## Privacy
 
-The only network traffic is the usage request to `api.anthropic.com`, made with
-your Claude Code token, and only while a usage key is in use. Nothing else leaves
-the machine. Session files in `~/.claude/sessions` are read locally and never
+The plugin makes two kinds of request: the usage request to `api.anthropic.com`,
+made with your Claude Code token, only while a usage key is in use; and the
+status request to `status.claude.com`, a public page fetched without any token or
+account data, only while a status key is in use. Nothing else leaves the
+machine. Session files in `~/.claude/sessions` are read locally and never
 sent anywhere. Launcher commands open `claude://` links or claude.ai pages
 through your system, which is the same as opening them yourself.
 
@@ -296,7 +342,8 @@ Plugin lines are prefixed `plugin:claude` in LoupixDeck's log
 (`~/.config/LoupixDeck/loupixdeck-startup.log` on macOS and Linux). At startup
 the plugin logs whether the Claude desktop app was found. Workers log when they
 start and stop, a successful usage lookup logs the two percentages and the token
-source (never the token), and a 429 is logged as a warning.
+source (never the token), a change of Claude's overall status is logged, and a
+429 (or a status page server error) is logged as a warning.
 
 ## Licence and credits
 
